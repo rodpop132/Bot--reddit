@@ -13,6 +13,9 @@ from openai import OpenAI
 import requests
 from collections import Counter
 from filelock import FileLock
+import threading
+from flask import Flask
+from praw.models import Comment
 
 # Configure logging (file + console output)
 logging.basicConfig(
@@ -118,6 +121,17 @@ openai = OpenAI(
     api_key=OPENAI_API_KEY,
     base_url=OPENAI_BASE_URL
 )
+
+app = Flask(__name__)
+
+@app.route("/")
+def index():
+    return "Bot está rodando!"
+
+# Função para rodar o Flask
+def run_flask():
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host="0.0.0.0", port=port)
 
 def load_json_with_lock(file_path: str, default):
     """Load JSON file with file locking."""
@@ -374,6 +388,9 @@ async def check_comments_and_respond(post_id: str, subreddit: str) -> None:
             return
         submission.comments.replace_more(limit=0)
         for comment in submission.comments.list():
+            # Ignorar objetos MoreComments
+            if not isinstance(comment, Comment):
+                continue
             if comment.author and comment.author.name != REDDIT_USERNAME and comment.id not in replied_comments and count < MAX_COMMENTS_PER_HOUR:
                 response = await generate_comment_response(comment.body, subreddit)
                 comment.reply(response)
@@ -510,6 +527,9 @@ async def main() -> None:
     await scheduler_loop()
 
 if __name__ == "__main__":
+    flask_thread = threading.Thread(target=run_flask)
+    flask_thread.daemon = True
+    flask_thread.start()
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
